@@ -1,0 +1,56 @@
+extends layout
+
+block content
+  .page-header
+    h3 Device List
+    table.table
+      thead
+        tr
+          th id
+          th vdid
+          th number
+          th direction
+          th longitude
+          th latitude
+          th previous node
+          th next node
+          th dist to prev
+          th dist to next
+      tbody
+        - each val in data
+          tr
+            td= val.id
+            td= val.vdid
+            td= val.roadDir
+            td= val.roadNum
+            td= val.lng
+            td= val.lat
+            td= val.prev
+            td= val.next
+            td= val.prevDist
+            td= val.nextDist
+
+  div#map(style='height: 70vh; min-height: 300px')
+  script.
+    function initMap() {
+      var map = new google.maps.Map(document.getElementById('map'), {
+        zoom: 11,
+        center: { lng: 121.73, lat: 24.95 }
+      });
+      $.get('/hsueh/trafficVehicleDetectors', function(result) {
+        result.forEach(function(o) {
+          new google.maps.Marker({
+            position: { lat: o.lat, lng: o.lng },
+            map: map,
+            title: o.id + ' : ' + o.vdid + ' ~~ prev: ' + o.prev + ', next: ' + o.next,
+            icon: {
+              url: '/images/bullet_' + (o.roadDir == 'N' ? 'blue' : 'red') + '.png',
+              size: new google.maps.Size(16, 16),
+              origin: new google.maps.Point(0, 0),
+              anchor: new google.maps.Point(8, 8),
+            }
+          });
+        });
+      });
+    }
+  script(async defer, src='https://maps.googleapis.com/maps/api/js?key=AIzaSyC1tq35xKtgIWPyjXmMT0Lq5U3yI82rXtI&signed_in=true&callback=initMap')

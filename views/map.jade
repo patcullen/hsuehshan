@@ -1,0 +1,221 @@
+extends layout
+
+block content
+  .page-header
+    h3 Map
+    div.toolbar
+      div.set
+        h4 Device Locations
+        div
+          button.shNorth(title='Show/Hide') North
+          button.shSouth(title='Show/Hide') South
+      div.set
+        h4 Traffic Heat Map
+        div
+          button.shHeatNorth North
+          button.shHeatSouth South
+          button.type Type
+          p.circle.info Radius = Num. vehicles Stroke = Avg speed / 10
+          p.line.info.hidden Opacity = Num. vehicles Stroke = Avg speed / 3
+          div.traffic.date
+          div.traffic.time
+    div#map
+  link(href='//code.jquery.com/ui/1.11.4/themes/smoothness/jquery-ui.css', rel='stylesheet')
+
+block scripts
+  script(async defer, src='https://maps.googleapis.com/maps/api/js?key=AIzaSyC1tq35xKtgIWPyjXmMT0Lq5U3yI82rXtI&signed_in=true&callback=initMap')
+  script.
+    var hsueh = {
+      device: null,
+      heatType: 'circle'
+    };
+    function initMap() {
+      hsueh.map = new google.maps.Map(document.getElementById('map'), {
+        zoom: 11,
+        center: { lng: 121.73, lat: 24.95 }
+      });
+      $.get('/hsueh/trafficVehicleDetectors', function(result) {
+        hsueh.device = result;
+        hsueh.device.forEach(function(o) {
+          o.marker = new google.maps.Marker({
+            position: { lat: o.lat, lng: o.lng },
+            map: hsueh.map,
+            title: o.vdid,
+            icon: {
+              url: '/images/bullet_' + (o.roadDir == 'N' ? 'blue' : 'red') + '.png',
+              size: new google.maps.Size(16, 16),
+              origin: new google.maps.Point(0, 0),
+              anchor: new google.maps.Point(8, 8),
+            }
+          });
+        });
+      });
+
+      // init controls
+      $('.toolbar').accordion({ heightStyle: 'content', icons: null, header: 'h4' });
+      $.get('/hsueh/trafficLimits', function(result) {
+        setupDates(result.dates);
+      });
+
+      $('.shNorth').on('click', toggleDeviceProperty.bind(null, 'N', 'marker'));
+      $('.shSouth').on('click', toggleDeviceProperty.bind(null, 'S', 'marker'));
+      $('.shHeatNorth').on('click', toggleDeviceProperty.bind(null, 'N', 'heat'));
+      $('.shHeatSouth').on('click', toggleDeviceProperty.bind(null, 'S', 'heat'));
+      $('.type').on('click', toggleHeatType);
+
+    }
+
+    function getDeviceById(id) {
+      for (var i = 0; i < hsueh.device.length; i++)
+        if (hsueh.device[i].id == id)
+          return hsueh.device[i];
+      return null;
+    }
+
+    function toggleDeviceProperty(direction, property) {
+      hsueh.device.forEach(function(o) {
+        if (direction.indexOf(o.roadDir) > -1) {
+          if (property == 'marker')
+            o.marker.setVisible(!o.marker.getVisible());
+          if (property == 'heat' && o.heatmap)
+            o.heatmap.setVisible(!o.heatmap.getVisible());
+        }
+      });
+    }
+
+    function setupDates(dates) {
+      hsueh.dates = dates;
+      var container = $('.traffic.date');
+      hsueh.dates.forEach(function(o) {
+        o.button = $('<a title="'+o.date+' ~ '+o.activity+'">'+o.date.substr(5, 5)+'</a>');
+        container.append(o.button);
+        o.button.on('click', chooseDay.bind(o));
+      });
+    }
+
+    function chooseDay() {
+      $('.traffic.date a.selected').removeClass('selected');
+      this.button.addClass('selected');
+      $('.traffic.time').empty();
+      hsueh.date = this;
+      if (typeof this.times == 'undefined') {
+        $.get('/hsueh/timesForDay?date=' + this.date, function(result) {
+          this.times = result;
+          setupTimes(this);
+        }.bind(this));
+      } else {
+        setupTimes(this);
+      }
+    }
+
+    function setupTimes(date) {
+      var container = $('.traffic.time');
+      for (var i = 0; i < date.times.length; i++) {
+        date.times[i] = {
+          time: date.times[i],
+          button: $('<a title="'+date.times[i]+'">'+date.times[i]+'</a>')
+        }
+        container.append(date.times[i].button);
+        date.times[i].button.on('click', chooseTime.bind(date.times[i].button, date, date.times[i]));
+      }
+    }
+    function chooseTime(date, time) {
+      console.log('select time', this, date, time);
+      hsueh.time = time;
+      $('.traffic.time a.selected').removeClass('selected');
+      this.addClass('selected');
+      if (typeof time.data == 'undefined') {
+        $.get('/hsueh/aggregatedTrafficForTime?time=' + date.date + ' ' + time.time, function(result) {
+          time.data = result;
+          showHeatMap(time);
+        }.bind(this));
+      } else {
+        showHeatMap(time);
+      }
+    }
+
+    function showHeatMap(time) {
+      console.log('render something like a heat map or circles', time);
+      hsueh.device.forEach(function(o) {
+        if (o.heatmap && o.heatmap.setMap)
+          o.heatmap.setMap(null);
+      });
+      time.data.forEach(function(o) {
+        if (typeof hsueh.device[o.device] == 'undefined') return;
+        var device = hsueh.device[o.device],
+            marker;
+        if (hsueh.heatType == 'circle') {
+          marker = new google.maps.Circle({
+            strokeWeight: o.speed / 10,
+            strokeColor: device.roadDir == 'N' ? 'blue' : 'red',
+            fillColor: device.roadDir == 'N' ? 'blue' : 'red',
+            fillOpacity: 0.31,
+            map: hsueh.map,
+            center: { lat: device.lat, lng: device.lng },
+            radius: o.total * 3
+          });
+        }
+        if (hsueh.heatType == 'line') {
+          var next = getDeviceById(device.next);
+          if (next) {
+            marker = new google.maps.Polyline({
+              path: [{ lat: device.lat, lng: device.lng }, { lat: next.lat, lng: next.lng }],
+              geodesic: true,
+              strokeColor: device.roadDir == 'N' ? 'blue' : 'red',
+              strokeOpacity: o.total / 100,
+              strokeWeight: o.speed / 3,
+              map: hsueh.map
+            });
+          }
+        }
+        if (marker) {
+          marker.setVisible(device.marker.getVisible());
+          device.heatmap = marker;
+        }
+      });
+    }
+
+    function toggleHeatType() {
+      $('.info').addClass('hidden');
+      if (hsueh.heatType == 'circle')
+        hsueh.heatType = 'line';
+      else
+        hsueh.heatType = 'circle';
+      $('.info.'+hsueh.heatType).removeClass('hidden');
+      if (hsueh.time)
+        showHeatMap(hsueh.time);
+    }
+
+  style.
+    #map {
+      height: 70vh;
+      min-height: 300px
+    }
+    .toolbar {
+      width: 250px;
+      float: right;
+      padding-left: 10px;
+      overflow: hidden;
+    }
+    .toolbar .set .ui-accordion-content {
+      padding: 5px;
+    }
+    .toolbar .set {
+    }
+    .traffic { font-size: 10px; padding: 5px 0px; }
+    .traffic a {
+      color: #888;
+      background-color: #eee;
+      display: inline-block;
+      height: 12px;
+      line-height: 12px;
+      margin: 1px;
+      cursor: pointer;
+    }
+    .traffic a:hover {
+      text-decoration: none;
+    }
+    .traffic a.selected {
+      color: #222;
+      background-color: #ddd;
+    }

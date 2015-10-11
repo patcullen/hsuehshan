@@ -1,0 +1,68 @@
+extends layout
+
+block content
+  h1 Setup
+  p.lead Let's setup your Hsuehshan data.
+  hr
+  .row
+    .col-sm-7
+      h2 First of all...
+      p Ensure data is placed in ../hsuehshan_data/ relative to this project directory.
+      if dataDirExists
+        p.success Data directory found.
+      else
+        p.warning Data directory not found. Place a folder called 'hsuehshan_data' alongside this project folder. The contents of the data folder should look like the following.
+          img(src='https://raw.githubusercontent.com/patcullen/hsuehshan/master/screenshots/folder_layout.png')
+      h2 Create database and import detectors
+      p This will setup the database tables and import traffic vehicle detector information.
+      if numberOfDetectors > 0
+        p.success Detector information has been imported. #{numberOfDetectors} detectors in the database.
+      else
+        p.warning Ensure you have a file called 'Traffic_Vehicle Detector_info.csv' in the data folder, then click 'Import'. Look at the console window to monitor progress of the import.
+        p
+          a.btn.btn-default(role='button' id='importDetectors') Import »
+      h2 Traffic Data
+      p Import some traffic data for viewing on the map.
+        p Ensure there is a subfolder called 'traffic' in the data folder. Choose your desired date range below and click 'Import'. Look at the console window to monitor progress of the import. Remember that data is stored in a SQLite database and does not scale over the entire available dataset. (Import up to one month of data for acceptable performance)
+        form.form-horizontal
+          .form-group
+            label(class='col-sm-2 control-label', for='startDate') Start Date
+            .col-sm-8
+              input.form-control(type='text', name='startDate', id='startDate', value='#{startDate}')
+          .form-group
+            label(class='col-sm-2 control-label', for='endDate') End Date
+            .col-sm-8
+              input.form-control(type='text', name='endDate', id='endDate', value='#{endDate}')
+        p
+          a.btn.btn-default(role='button' id='importTraffic' class='grow') Import »
+  style.
+    .success {
+      color: #44cc44;
+    }
+    .warning {
+      color: #cc8844;
+    }
+    .actioned {
+      color: #666;
+    }
+    .actioned:after {
+      content: " ✔";
+    }
+
+
+block scripts
+  script.
+    (function() {
+
+      $('#importDetectors').on('click', function () {
+        $.get('/hsueh/importDetectors', function(result) {
+          $('#importDetectors').addClass('actioned');
+        });
+      });
+      $('#importTraffic').on('click', function () {
+        $.get('/hsueh/importTraffic?startDate=' + $('#startDate').val() + '&endDate=' + $('#endDate').val(), function(result) {
+          $('#importTraffic').addClass('actioned');
+        });
+      });
+
+    })();
