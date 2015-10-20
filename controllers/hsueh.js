@@ -39,7 +39,7 @@ function walk(dir, done) {
 };
 
 function createDatabase() {
-  db.run('CREATE TABLE IF NOT EXISTS device (vdid TEXT, roadDir TEXT, roadNum TEXT, lng REAL, lat REAL, prev INT, next INT, prevDist INT, nextDist INT)');
+  db.run('CREATE TABLE IF NOT EXISTS device (vdid TEXT, roadDir TEXT, roadNum TEXT, lng REAL, lat REAL, queueIndex INT, prev INT, next INT, prevDist INT, nextDist INT)');
   db.run('CREATE TABLE IF NOT EXISTS collection (rowid INT PRIMARY KEY, device INT, status SMALLINT, collectTime DATETIME, interval INT) WITHOUT ROWID');
   db.run('CREATE TABLE IF NOT EXISTS lane (rowid INT PRIMARY KEY, collection INT, num SMALLINT, speed SMALLINT, occupy SMALLINT, S SMALLINT, T SMALLINT, L SMALLINT) WITHOUT ROWID');
   console.log('Database created and tables defined.');
@@ -57,14 +57,13 @@ function importDetectorInfo(cb) {
         db.run('INSERT INTO device (vdid, roadDir, roadNum, lng, lat) VALUES (\''+output[i][0]+'\', \''+output[i][0][7]+'\', \''+output[i][0][6]+'\', '+output[i][2]+', '+output[i][1]+')');
       console.log(output.length + ' devices imported.');
       getDeviceList(function(devices) {
-        var southern = calculateQueuePointers(devices, 'S', 'nfbVD-5N-0.178'),
-          northern = calculateQueuePointers(devices, 'N', 'nfbVD-5N-TCIC-I-29.843');
-        southern.forEach(function(o) {
-          db.run('UPDATE device SET prev = '+o.prev+', next = '+o.next+', prevDist = '+o.prevDist+', nextDist = '+o.nextDist+' WHERE rowid = '+o.id);
-        });
-        northern.forEach(function(o) {
-          db.run('UPDATE device SET prev = '+o.prev+', next = '+o.next+', prevDist = '+o.prevDist+', nextDist = '+o.nextDist+' WHERE rowid = '+o.id);
-        });
+        var southern = calculateQueuePointers(devices, 'S', 'nfbVD-5S-SDT-1.072'),
+          northern = calculateQueuePointers(devices, 'N', 'nfbVD-5N-TCIC-I-29.843'),
+          updateFunction = function(o) {
+            db.run('UPDATE device SET queueIndex = '+o.queueIndex+', prev = '+o.prev+', next = '+o.next+', prevDist = '+o.prevDist+', nextDist = '+o.nextDist+' WHERE rowid = '+o.id);
+          };
+        southern.forEach(updateFunction);
+        northern.forEach(updateFunction);
         console.log('Queue pointers updated on devices.');
         createLocalDetectorMapping(cb);
       });
@@ -108,6 +107,7 @@ function calculateQueuePointers(devices, roadDir, startId) {
     pool.splice(smallestIndex, 1);
   }
   for (var i = 0; i < sorted.length; i++) {
+    sorted[i].queueIndex = i;
     sorted[i].prev = (i > 0 ? sorted[i-1].id : null);
     sorted[i].prevDist = (i > 0 ? meterDistance(sorted[i-1], sorted[i]) : null);
     sorted[i].next = (i < sorted.length - 1 ? sorted[i+1].id : null);
@@ -225,6 +225,56 @@ function getDeviceList(callback) {
     callback(data);
   });
 };
+
+function f2s(f) {
+  return f.toString().replace(/^[^\/]+\/\*!?/, '').replace(/\*\/[^\/]+$/, '');
+}
+
+function trainTrafficAtTimeNetwork() {
+  var synaptic = require('synaptic');
+  var Neuron = synaptic.Neuron,
+      Layer = synaptic.Layer,
+      Network = synaptic.Network,
+      Trainer = synaptic.Trainer,
+      Architect = synaptic.Architect,
+      sql = f2s(function() {/*
+        SELECT CASE WHEN D.roadDir = 'S' THEN 0 ELSE 1 END roadDir, D.queueIndex,
+          strftime('%w', replace(C.collectTime, '/', '-')) day, strftime('%H', replace(C.collectTime, '/', '-')) hour,
+          AVG(L.speed) speed
+        FROM collection C
+          INNER JOIN lane L ON (C.rowid = L.collection)
+          INNER JOIN device D ON (C.device = D.rowid)
+        WHERE L.speed <> 0
+        GROUP BY C.device, D.vdid, substr(C.collectTime, 1, 13)
+      */});
+
+  db.all(sql, function(err, data) {
+    var set = data.map(function(o) {
+      return {
+        input: [parseInt(o.day), parseInt(o.hour), o.roadDir, o.queueIndex],
+        output: [o.speed]
+      };
+    });
+    console.log('set length: ' + set.length);
+
+    var net = new Architect.Perceptron(4, 6, 1);
+    var trainer = new Trainer(net);
+    var result = trainer.train(set, {
+      rate: 0.3,
+      iterations: 20000,
+      error: 0.05,
+      shuffle: true,
+      log: 10
+    });
+    console.log('****************************************');
+    console.dir(result);
+  });
+
+
+}
+setTimeout(function() {
+    trainTrafficAtTimeNetwork();
+}, 1000);
 
 
 // public functions
