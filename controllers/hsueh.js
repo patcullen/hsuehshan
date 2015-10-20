@@ -264,7 +264,7 @@ function trainTrafficAtTimeNetwork() {
       iterations: 20000,
       error: 0.05,
       shuffle: true,
-      log: 10
+      log: 100
     });
     console.log('****************************************');
     console.dir(result);
@@ -272,9 +272,8 @@ function trainTrafficAtTimeNetwork() {
 
 
 }
-setTimeout(function() {
-    trainTrafficAtTimeNetwork();
-}, 1000);
+// trainTrafficAtTimeNetwork();
+
 
 
 // public functions
